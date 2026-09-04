@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- 统一结构化 JSON 日志：timestamp/level/service/traceId/请求上下文/业务上下文/message。
+         MDC 字段由 TraceIdFilter 与业务代码写入：traceId、requestUri、method、userPublicId、
+         prototypePublicId、versionPublicId、action。禁止打印请求体与响应体。 -->
+    <springProperty scope="context" name="SERVICE_NAME" source="spring.application.name" defaultValue="prototype-service"/>
+
+    <appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <customFields>{"service":"${SERVICE_NAME}"}</customFields>
+            <includeMdc>true</includeMdc>
+            <includeContext>false</includeContext>
+        </encoder>
+    </appender>
+
+    <!-- 敏感库降噪 -->
+    <logger name="org.hibernate.SQL" level="WARN"/>
+    <logger name="org.apache.coyote" level="WARN"/>
+    <logger name="org.springframework.security" level="INFO"/>
+
+    <root level="INFO">
+        <appender-ref ref="JSON"/>
+    </root>
+</configuration>

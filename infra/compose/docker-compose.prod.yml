@@ -1,0 +1,34 @@
+# Production overlay: HTTPS on 8989 (management) and 8990 (preview).
+# Usage from repo root:
+#   docker compose -f infra/compose/docker-compose.yml -f infra/compose/docker-compose.prod.yml --env-file .env up -d --build
+#
+# Does not publish 80/443 so existing host apps keep those ports.
+
+name: prototype-platform
+
+services:
+  web:
+    build:
+      context: ../..
+      dockerfile: apps/web/Dockerfile.prebuilt
+
+  nginx:
+    ports: !override
+      - "8989:8989"
+      - "8990:8990"
+    volumes:
+      - ../nginx/conf.d/https-ziyue.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${SSL_CERT_DIR:-/root/new_cert}:/etc/nginx/certs:ro
+
+  api:
+    environment:
+      UPLOAD_PUBLIC_BASE_URL: ${UPLOAD_PUBLIC_BASE_URL}
+      PREVIEW_BASE_URL: ${PREVIEW_BASE_URL}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-true}
+      SERVER_FORWARD_HEADERS_STRATEGY: framework
+
+  preview-gateway:
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      PREVIEW_DOMAIN: ${PREVIEW_DOMAIN}
+      PROTOTYPE_DOMAIN: ${PROTOTYPE_DOMAIN}

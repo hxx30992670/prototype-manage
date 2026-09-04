@@ -1,0 +1,20 @@
+CREATE TABLE prototype_attachment (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  public_id CHAR(26) NOT NULL UNIQUE,
+  prototype_id BIGINT NOT NULL,
+  version_id BIGINT NULL,
+  name VARCHAR(255) NOT NULL,
+  type VARCHAR(16) NOT NULL,
+  purpose VARCHAR(500),
+  access_scope VARCHAR(16) NOT NULL,
+  object_key VARCHAR(512) NOT NULL,
+  size BIGINT NOT NULL,
+  mime_type VARCHAR(128) NOT NULL,
+  checksum CHAR(64) NOT NULL,
+  created_by BIGINT NOT NULL,
+  created_at TIMESTAMP(6) NOT NULL,
+  deleted_at TIMESTAMP(6),
+  FOREIGN KEY (prototype_id) REFERENCES prototype(id),
+  FOREIGN KEY (version_id) REFERENCES prototype_version(id),
+  FOREIGN KEY (created_by) REFERENCES sys_user(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

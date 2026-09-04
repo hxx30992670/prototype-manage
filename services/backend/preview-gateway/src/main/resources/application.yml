@@ -1,0 +1,31 @@
+server:
+  port: 8082
+
+management:
+  server:
+    port: ${MANAGEMENT_SERVER_PORT:8081}
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+
+spring:
+  application:
+    name: preview-gateway
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:redis_secret}
+
+minio:
+  endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+  bucket: ${MINIO_BUCKET:prototype-objects}
+  root-user: ${MINIO_ROOT_USER:minio_admin}
+  root-password: ${MINIO_ROOT_PASSWORD:minio_secret}
+
+preview:
+  domain: ${PREVIEW_DOMAIN:http://preview.corp.test}
+
+prototype:
+  domain: ${PROTOTYPE_DOMAIN:http://prototype.corp.test}

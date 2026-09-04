@@ -1,0 +1,8 @@
+# Used when the host kernel cannot run pnpm inside Docker (e.g. CentOS 7 overlayfs EPERM).
+# Build the SPA on a developer machine first: pnpm --filter @prototype/web build
+FROM alpine:3.21
+WORKDIR /app
+COPY apps/web/dist /dist
+VOLUME /usr/share/nginx/html/web
+
+CMD ["sh", "-c", "mkdir -p /usr/share/nginx/html/web && cp -rf /dist/* /usr/share/nginx/html/web/ && tail -f /dev/null"]

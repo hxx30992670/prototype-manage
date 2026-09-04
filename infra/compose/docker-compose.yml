@@ -1,0 +1,188 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: prototype-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-prototype_db}
+      MYSQL_USER: ${MYSQL_USER:-prototype_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-prototype_pass}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_pass}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$$MYSQL_ROOT_PASSWORD || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7.4
+    container_name: prototype-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  minio:
+    image: minio/minio:RELEASE.2025-02-18T16-25-55Z
+    container_name: prototype-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio_admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio_secret}
+    command: server /data
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build:
+      context: ../..
+      dockerfile: apps/web/Dockerfile
+    container_name: prototype-web
+    restart: unless-stopped
+    volumes:
+      - web_dist:/usr/share/nginx/html/web
+
+  api:
+    build:
+      context: ../..
+      dockerfile: services/backend/api/Dockerfile
+    container_name: prototype-api
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-prototype_db}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-prototype_user}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-prototype_pass}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_BUCKET: ${MINIO_BUCKET:-prototype-objects}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio_admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio_secret}
+      UPLOAD_PUBLIC_BASE_URL: ${UPLOAD_PUBLIC_BASE_URL:-http://prototype.corp.test/upload-objects}
+      PREVIEW_BASE_URL: ${PREVIEW_BASE_URL:-http://preview.corp.test}
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-PH_ADMIN_SESSION}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-admin}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-Admin@123456}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  publish-worker:
+    build:
+      context: ../..
+      dockerfile: services/backend/publish-worker/Dockerfile
+    container_name: prototype-publish-worker
+    restart: unless-stopped
+    read_only: true
+    user: "10001:10001"
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+    tmpfs:
+      - /work:size=4g,mode=0700
+      - /tmp:size=512m,mode=0777
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-prototype_db}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-prototype_user}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-prototype_pass}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_BUCKET: ${MINIO_BUCKET:-prototype-objects}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio_admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio_secret}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  preview-gateway:
+    build:
+      context: ../..
+      dockerfile: services/backend/preview-gateway/Dockerfile
+    container_name: prototype-preview-gateway
+    restart: unless-stopped
+    read_only: true
+    user: "10001:10001"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+    tmpfs:
+      - /work:size=512m,mode=0700
+      - /tmp:size=256m,mode=0777
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_secret}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_BUCKET: ${MINIO_BUCKET:-prototype-objects}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio_admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio_secret}
+      PREVIEW_DOMAIN: http://preview.corp.test
+      PROTOTYPE_DOMAIN: http://prototype.corp.test
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  nginx:
+    build:
+      context: ../..
+      dockerfile: infra/nginx/Dockerfile
+    container_name: prototype-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - web_dist:/usr/share/nginx/html/web:ro
+    depends_on:
+      - web
+      - api
+      - preview-gateway
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: prototype-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./../monitoring/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+    ports:
+      - "127.0.0.1:9090:9090"
+    depends_on:
+      - api
+      - preview-gateway
+
+volumes:
+  mysql_data:
+  redis_data:
+  minio_data:
+  web_dist:

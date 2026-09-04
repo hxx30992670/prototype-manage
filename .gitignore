@@ -1,0 +1,60 @@
+# Operating System
+.DS_Store
+Thumbs.db
+
+# Environment & Local Configuration
+.env
+.env.dev
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Node / Frontend
+node_modules/
+dist/
+dist-ssr/
+coverage/
+.pnpm-store/
+*.local
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# Java / Maven
+target/
+*.class
+*.jar
+*.war
+*.ear
+.mvn/wrapper/maven-wrapper.jar
+
+# IDE & Editors
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+*.sublime-project
+*.sublime-workspace
+.project
+.classpath
+.settings/
+
+# Temp & Artifacts
+tmp/
+temp/
+scratch/
+.superpowers/
+docs/superpowers/
+
+# Local screenshot dumps (compressed copies live in docs/screenshots/)
+/images/

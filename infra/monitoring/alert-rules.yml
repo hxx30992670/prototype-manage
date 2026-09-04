@@ -1,0 +1,107 @@
+groups:
+  - name: prototype-platform
+    rules:
+      # 发布任务连续失败或积压
+      - alert: PublishJobsBacklog
+        expr: prototype_publish_jobs_pending > 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "发布任务积压"
+          description: "当前存在 {{ $value }} 个待处理/进行中的发布任务，持续 10 分钟以上。"
+
+      - alert: PublishJobsFailedHigh
+        expr: prototype_publish_jobs_failed > 3
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "发布失败任务过多"
+          description: "失败发布任务数达到 {{ $value }}。"
+
+      # 清理任务积压或 DEAD
+      - alert: CleanupJobsBacklog
+        expr: prototype_cleanup_jobs_pending > 10
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "清理任务积压"
+          description: "回收站清理任务积压 {{ $value }} 个。"
+
+      - alert: CleanupTaskDead
+        expr: increase(prototype_cleanup_tasks_dead_total[10m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "清理任务死亡"
+          description: "存在超过重试上限标记为 DEAD 的清理任务。"
+
+      # 登录/分享密码失败异常增长
+      - alert: LoginFailuresSpike
+        expr: increase(prototype_login_failures_total[10m]) > 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "登录失败异常增长"
+          description: "10 分钟内登录失败 {{ $value }} 次，疑似暴力尝试。"
+
+      - alert: SharePasswordFailuresSpike
+        expr: increase(prototype_share_password_failures_total[10m]) > 30
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "分享密码失败异常增长"
+          description: "10 分钟内分享密码失败 {{ $value }} 次。"
+
+      # 内容票据拒绝（预览 403）
+      - alert: TicketRejectsHigh
+        expr: increase(prototype_ticket_rejects_total[10m]) > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "内容票据拒绝激增"
+          description: "10 分钟内票据拒绝 {{ $value }} 次，疑似票据失效或扫描。"
+
+      # MinIO 错误与一致性异常
+      - alert: MinioErrors
+        expr: increase(prototype_minio_errors_total[10m]) > 10
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MinIO 错误增多"
+          description: "10 分钟内 MinIO 操作错误 {{ $value }} 次，检查对象存储健康。"
+
+      - alert: ConsistencyExceptions
+        expr: increase(prototype_consistency_exceptions_total[10m]) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "一致性扫描异常"
+          description: "一致性扫描发现异常，请检查扫描报告。"
+
+      # 健康检查连续失败（由 Prometheus 探活规则补充：实例 down）
+      - alert: ApiInstanceDown
+        expr: up{job="prototype-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API 服务不可用"
+          description: "prototype-api 探活失败超过 2 分钟。"
+
+      - alert: GatewayInstanceDown
+        expr: up{job="preview-gateway"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "预览网关不可用"
+          description: "preview-gateway 探活失败超过 2 分钟。"

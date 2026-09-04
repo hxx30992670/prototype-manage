@@ -1,0 +1,150 @@
+# HTTPS 正式环境 Nginx 配置模板
+# 用法：
+#   1. 将证书文件放入 /etc/nginx/certs/（或通过 Docker volume 挂载）；
+#   2. 用实际域名替换 ${PROTOTYPE_DOMAIN} / ${PREVIEW_DOMAIN} 与证书文件名；
+#   3. 业务代码无需修改，仅需切换环境变量：
+#      APP_SCHEME=https、SESSION_COOKIE_SECURE=true、MANAGEMENT_BASE_URL/PREVIEW_BASE_URL 为 https。
+#   4. 所有子域均支持 HTTPS 且确认无 HTTP 依赖后再启用 includeSubDomains。
+
+server {
+    listen 80;
+    server_name ${PROTOTYPE_DOMAIN} ${PREVIEW_DOMAIN};
+    # HTTP 自动跳转 HTTPS
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name ${PROTOTYPE_DOMAIN};
+
+    ssl_certificate     /etc/nginx/certs/${PROTOTYPE_DOMAIN}.pem;
+    ssl_certificate_key /etc/nginx/certs/${PROTOTYPE_DOMAIN}.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    client_max_body_size 1000m;
+
+    location = /api {
+        return 404;
+    }
+
+    location /api/ {
+        proxy_pass http://api:8080;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+
+    location /upload-objects/ {
+        limit_except PUT HEAD { deny all; }
+        proxy_request_buffering off;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        access_log /var/log/nginx/upload_access.log credentials_safe;
+        proxy_pass http://minio:9000/;
+    }
+
+    location = /upload-objects {
+        return 404;
+    }
+
+    location = /minio {
+        return 404;
+    }
+
+    location /minio/ {
+        return 404;
+    }
+
+    location = /content {
+        return 404;
+    }
+
+    location /content/ {
+        return 404;
+    }
+
+    location / {
+        root /usr/share/nginx/html/web;
+        try_files $uri /index.html;
+
+        add_header X-Content-Type-Options nosniff always;
+        add_header Referrer-Policy no-referrer always;
+        add_header X-Frame-Options DENY always;
+        add_header Strict-Transport-Security "max-age=31536000" always;
+        # 确认所有子域均支持 HTTPS 后再启用 includeSubDomains：
+        # add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-src https://${PREVIEW_DOMAIN}; object-src 'none'; base-uri 'self'; frame-ancestors 'none'" always;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name ${PREVIEW_DOMAIN};
+
+    ssl_certificate     /etc/nginx/certs/${PREVIEW_DOMAIN}.pem;
+    ssl_certificate_key /etc/nginx/certs/${PREVIEW_DOMAIN}.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    location = /health {
+        return 200 'preview-ok';
+        add_header Content-Type text/plain;
+    }
+
+    location = /api {
+        return 404;
+    }
+
+    location /api/ {
+        return 404;
+    }
+
+    location = /upload-objects {
+        return 404;
+    }
+
+    location /upload-objects/ {
+        return 404;
+    }
+
+    location = /minio {
+        return 404;
+    }
+
+    location /minio/ {
+        return 404;
+    }
+
+    location /share-api/ {
+        proxy_pass http://api:8080;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+
+    location = /content {
+        return 404;
+    }
+
+    location /content/ {
+        proxy_pass http://preview-gateway:8082;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+
+    location / {
+        root /usr/share/nginx/html/web;
+        try_files $uri /index.html;
+
+        add_header X-Content-Type-Options nosniff always;
+        add_header Referrer-Policy no-referrer always;
+        add_header X-Frame-Options DENY always;
+        add_header Strict-Transport-Security "max-age=31536000" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-src https://${PREVIEW_DOMAIN}; object-src 'none'; base-uri 'self'; frame-ancestors 'none'" always;
+    }
+}

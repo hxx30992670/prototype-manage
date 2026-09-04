@@ -1,0 +1,20 @@
+CREATE TABLE prototype_share_link (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  public_id CHAR(26) NOT NULL UNIQUE,
+  prototype_id BIGINT NOT NULL,
+  name VARCHAR(100) NOT NULL,
+  token_digest CHAR(64) NOT NULL UNIQUE,
+  password_hash VARCHAR(255),
+  expires_at TIMESTAMP(6),
+  status VARCHAR(16) NOT NULL DEFAULT 'ACTIVE',
+  spec_scope VARCHAR(16) NOT NULL DEFAULT 'NONE',
+  allow_comment BOOLEAN NOT NULL DEFAULT FALSE,
+  allow_public_attachment BOOLEAN NOT NULL DEFAULT FALSE,
+  auth_epoch BIGINT NOT NULL DEFAULT 0,
+  visit_count BIGINT NOT NULL DEFAULT 0,
+  last_visited_at TIMESTAMP(6),
+  created_by BIGINT NOT NULL,
+  created_at TIMESTAMP(6) NOT NULL,
+  FOREIGN KEY (prototype_id) REFERENCES prototype(id),
+  FOREIGN KEY (created_by) REFERENCES sys_user(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -1,0 +1,17 @@
+spring:
+  application:
+    name: prototype-publish-worker
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/prototype?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai}
+    username: ${SPRING_DATASOURCE_USERNAME:prototype}
+    password: ${SPRING_DATASOURCE_PASSWORD:prototype123}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+minio:
+  endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+  bucket: ${MINIO_BUCKET:prototype-objects}
+  root-user: ${MINIO_ROOT_USER:minio_admin}
+  root-password: ${MINIO_ROOT_PASSWORD:minio_secret}
