@@ -54,6 +54,12 @@
 
 - GitHub：[hxx30992670](https://github.com/hxx30992670)
 - 邮箱：hexinxing3086@gmail.com
+- 微信：不忘初心
+
+<p align="left">
+  <img src="docs/screenshots/wechat.jpg" alt="微信：不忘初心" width="280" />
+</p>
+
 ## 技术栈
 
 | 层 | 技术 |
