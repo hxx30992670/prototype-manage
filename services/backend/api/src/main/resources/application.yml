@@ -2,6 +2,8 @@ server:
   port: 8080
   servlet:
     session:
+      # Sliding idle timeout. Spring default is 30m, which logs users out after a short pause.
+      timeout: ${SESSION_TIMEOUT:12h}
       cookie:
         name: PH_ADMIN_SESSION
         http-only: true

@@ -116,10 +116,17 @@ http.interceptors.request.use(async (config) => {
   return config;
 });
 
+const PUBLIC_AUTH_PATHS = ['/auth/login', '/auth/captcha', '/auth/csrf'];
+
+function isPublicAuthRequest(error: AxiosError): boolean {
+  const url = error.config?.url ?? '';
+  return PUBLIC_AUTH_PATHS.some((path) => url.includes(path));
+}
+
 http.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
-    if (error.response?.status === 401) {
+    if (error.response?.status === 401 && !isPublicAuthRequest(error)) {
       authEvents.emitExpired();
     }
     return Promise.reject(normalizeApiError(error));

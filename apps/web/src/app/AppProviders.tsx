@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ConfigProvider, App, Empty } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
@@ -7,6 +7,7 @@ import 'dayjs/locale/zh-cn';
 import { getAntdTheme } from '@/theme/antdTheme';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 import { useTheme } from '@/theme/themeContext';
+import { authEvents, setCsrfToken } from '@/lib/http';
 
 dayjs.locale('zh-cn');
 
@@ -28,6 +29,14 @@ const ThemedApp: React.FC<AppProvidersProps> = ({ children }) => {
         },
       })
   );
+
+  useEffect(() => {
+    return authEvents.subscribe(() => {
+      setCsrfToken(null);
+      void queryClient.cancelQueries({ queryKey: ['auth', 'me'] });
+      queryClient.setQueryData(['auth', 'me'], null);
+    });
+  }, [queryClient]);
 
   return (
     <ConfigProvider
