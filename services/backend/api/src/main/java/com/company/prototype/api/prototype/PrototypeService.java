@@ -38,6 +38,9 @@ import java.util.stream.Collectors;
 public class PrototypeService {
 
     private static final int MAX_OWNERS = 20;
+    private static final int MAX_VIEWERS = 50;
+    private static final int MAX_DOWNLOADERS = 50;
+    private static final Set<String> DOWNLOAD_ACCESS = Set.of("MANAGERS_ONLY", "ALL_VIEWERS", "SELECTED");
 
     private final PrototypeRepository prototypeRepository;
     private final CategoryRepository categoryRepository;
@@ -98,7 +101,10 @@ public class PrototypeService {
         entity.setCategory(category);
         entity.setCreatedBy(createdBy);
         applyOwners(entity, owners, createdBy);
-        entity.setVisibility(req.visibility() != null ? req.visibility() : "ALL_INTERNAL");
+        String visibility = req.visibility() != null ? req.visibility() : "ALL_INTERNAL";
+        entity.setVisibility(visibility);
+        applyViewers(entity, visibility, req.viewerIds(), true);
+        applyDownloadAccess(entity, visibility, req.downloadAccess(), req.downloaderIds(), true);
         entity.setReviewStatus("DRAFT");
         entity.setArchived(false);
         entity.setTags(tags);
@@ -148,9 +154,12 @@ public class PrototypeService {
         entity.setPublicSummary(req.publicSummary());
         entity.setCategory(category);
         applyOwners(entity, owners, entity.getCreatedBy());
+        String visibility = req.visibility() != null ? req.visibility() : entity.getVisibility();
         if (req.visibility() != null) {
             entity.setVisibility(req.visibility());
         }
+        applyViewers(entity, visibility, req.viewerIds(), false);
+        applyDownloadAccess(entity, visibility, req.downloadAccess(), req.downloaderIds(), false);
         entity.setTags(tags);
         entity.setUpdatedAt(Instant.now());
 
@@ -280,7 +289,12 @@ public class PrototypeService {
                 Long currentUserId = currentUser != null ? currentUser.id() : -1L;
                 Predicate notRestricted = cb.notEqual(root.get("visibility"), "RESTRICTED");
                 Predicate isCreator = cb.equal(root.get("createdBy").get("id"), currentUserId);
-                predicates.add(cb.or(notRestricted, isCreator, isAssignedOwner(root, query, cb, currentUserId, null)));
+                predicates.add(cb.or(
+                    notRestricted,
+                    isCreator,
+                    isAssignedOwner(root, query, cb, currentUserId, null),
+                    isAssignedViewer(root, query, cb, currentUserId)
+                ));
             }
 
             // 3. Keyword
@@ -387,6 +401,22 @@ public class PrototypeService {
         return cb.or(cb.equal(root.get("owner").get("publicId"), ownerPublicId), root.get("id").in(owned));
     }
 
+    private Predicate isAssignedViewer(
+        Root<PrototypeEntity> root,
+        jakarta.persistence.criteria.CriteriaQuery<?> query,
+        jakarta.persistence.criteria.CriteriaBuilder cb,
+        Long userId
+    ) {
+        Subquery<Long> visible = query.subquery(Long.class);
+        Root<PrototypeEntity> visibleRoot = visible.from(PrototypeEntity.class);
+        Join<PrototypeEntity, UserEntity> viewers = visibleRoot.join("viewers", JoinType.INNER);
+        visible.select(visibleRoot.get("id")).where(
+            cb.equal(visibleRoot.get("id"), root.get("id")),
+            cb.equal(viewers.get("id"), userId)
+        );
+        return root.get("id").in(visible);
+    }
+
     private Set<UserEntity> resolveOwners(Set<String> ownerIds, String ownerId, UserEntity createdBy, boolean required) {
         LinkedHashSet<String> ids = new LinkedHashSet<>();
         if (ownerIds != null) {
@@ -437,6 +467,150 @@ public class PrototypeService {
             .orElseGet(() -> owners.iterator().next());
     }
 
+    private void applyViewers(PrototypeEntity entity, String visibility, Set<String> viewerIds, boolean creating) {
+        if (!"RESTRICTED".equalsIgnoreCase(visibility)) {
+            entity.setViewers(new HashSet<>());
+            return;
+        }
+        Set<UserEntity> viewers = resolveViewers(viewerIds);
+        if (viewers == null) {
+            if (creating || entity.getViewers() == null) {
+                entity.setViewers(new HashSet<>());
+            }
+            return;
+        }
+        entity.setViewers(viewers);
+    }
+
+    private Set<UserEntity> resolveViewers(Set<String> viewerIds) {
+        if (viewerIds == null) {
+            return null;
+        }
+        LinkedHashSet<String> ids = new LinkedHashSet<>();
+        viewerIds.stream()
+            .filter(id -> id != null && !id.isBlank())
+            .map(String::trim)
+            .forEach(ids::add);
+        if (ids.isEmpty()) {
+            return new LinkedHashSet<>();
+        }
+        if (ids.size() > MAX_VIEWERS) {
+            throw new ApiException(ApiErrorCode.VALIDATION_FAILED, "可查看人员最多选择" + MAX_VIEWERS + "人");
+        }
+
+        List<UserEntity> found = userRepository.findByPublicIdIn(ids);
+        Map<String, UserEntity> byPublicId = found.stream()
+            .collect(Collectors.toMap(UserEntity::getPublicId, user -> user));
+
+        LinkedHashSet<UserEntity> viewers = new LinkedHashSet<>();
+        for (String id : ids) {
+            UserEntity viewer = byPublicId.get(id);
+            if (viewer == null) {
+                throw new ApiException(ApiErrorCode.RESOURCE_NOT_FOUND, "可查看人员不存在");
+            }
+            if (!"ACTIVE".equals(viewer.getStatus())) {
+                throw new ApiException(ApiErrorCode.VALIDATION_FAILED, "可查看人员账号已禁用");
+            }
+            viewers.add(viewer);
+        }
+        return viewers;
+    }
+
+    private void applyDownloadAccess(
+        PrototypeEntity entity,
+        String visibility,
+        String downloadAccess,
+        Set<String> downloaderIds,
+        boolean creating
+    ) {
+        String access = downloadAccess == null || downloadAccess.isBlank()
+            ? (creating || entity.getDownloadAccess() == null || entity.getDownloadAccess().isBlank()
+                ? "MANAGERS_ONLY"
+                : entity.getDownloadAccess())
+            : downloadAccess.trim().toUpperCase(Locale.ROOT);
+        if (!DOWNLOAD_ACCESS.contains(access)) {
+            throw new ApiException(ApiErrorCode.VALIDATION_FAILED, "下载权限取值无效");
+        }
+        entity.setDownloadAccess(access);
+        if (!"SELECTED".equals(access)) {
+            entity.setDownloaders(new HashSet<>());
+            return;
+        }
+
+        Set<UserEntity> requested = resolveDownloaders(downloaderIds);
+        if (requested == null) {
+            requested = creating || entity.getDownloaders() == null
+                ? new LinkedHashSet<>()
+                : new LinkedHashSet<>(entity.getDownloaders());
+        }
+
+        Set<Long> visibleIds = restrictedVisibleIds(entity);
+        LinkedHashSet<UserEntity> kept = new LinkedHashSet<>();
+        for (UserEntity user : requested) {
+            if (!"RESTRICTED".equalsIgnoreCase(visibility) || (user.getId() != null && visibleIds.contains(user.getId()))) {
+                kept.add(user);
+            }
+        }
+        entity.setDownloaders(kept);
+    }
+
+    private Set<Long> restrictedVisibleIds(PrototypeEntity entity) {
+        Set<Long> ids = new HashSet<>();
+        if (entity.getCreatedBy() != null && entity.getCreatedBy().getId() != null) {
+            ids.add(entity.getCreatedBy().getId());
+        }
+        if (entity.getOwner() != null && entity.getOwner().getId() != null) {
+            ids.add(entity.getOwner().getId());
+        }
+        if (entity.getOwners() != null) {
+            entity.getOwners().stream()
+                .map(UserEntity::getId)
+                .filter(Objects::nonNull)
+                .forEach(ids::add);
+        }
+        if (entity.getViewers() != null) {
+            entity.getViewers().stream()
+                .map(UserEntity::getId)
+                .filter(Objects::nonNull)
+                .forEach(ids::add);
+        }
+        return ids;
+    }
+
+    private Set<UserEntity> resolveDownloaders(Set<String> downloaderIds) {
+        if (downloaderIds == null) {
+            return null;
+        }
+        LinkedHashSet<String> ids = new LinkedHashSet<>();
+        downloaderIds.stream()
+            .filter(id -> id != null && !id.isBlank())
+            .map(String::trim)
+            .forEach(ids::add);
+        if (ids.isEmpty()) {
+            return new LinkedHashSet<>();
+        }
+        if (ids.size() > MAX_DOWNLOADERS) {
+            throw new ApiException(ApiErrorCode.VALIDATION_FAILED, "可下载人员最多选择" + MAX_DOWNLOADERS + "人");
+        }
+
+        List<UserEntity> found = userRepository.findByPublicIdIn(ids);
+        Map<String, UserEntity> byPublicId = found.stream()
+            .collect(Collectors.toMap(UserEntity::getPublicId, user -> user));
+
+        LinkedHashSet<UserEntity> downloaders = new LinkedHashSet<>();
+        for (String id : ids) {
+            UserEntity downloader = byPublicId.get(id);
+            if (downloader == null) {
+                throw new ApiException(ApiErrorCode.RESOURCE_NOT_FOUND, "可下载人员不存在");
+            }
+            if (!"ACTIVE".equals(downloader.getStatus())) {
+                throw new ApiException(ApiErrorCode.VALIDATION_FAILED, "可下载人员账号已禁用");
+            }
+            downloaders.add(downloader);
+        }
+        return downloaders;
+    }
+
     private void validateEligibleOwner(UserEntity owner) {
         boolean ownerHasCreator = owner.getRoles().stream()
             .anyMatch(r -> "CREATOR".equals(r.getCode()) || "ADMIN".equals(r.getCode()));
@@ -481,6 +655,26 @@ public class PrototypeService {
             ownerSummaries = List.of();
         }
 
+        List<PrototypeDtos.UserSummary> viewerSummaries = e.getViewers() == null
+            ? List.of()
+            : e.getViewers().stream()
+                .sorted(Comparator.comparing(UserEntity::getDisplayName, String.CASE_INSENSITIVE_ORDER)
+                    .thenComparing(UserEntity::getUsername, String.CASE_INSENSITIVE_ORDER))
+                .map(viewer -> new PrototypeDtos.UserSummary(viewer.getPublicId(), viewer.getUsername(), viewer.getDisplayName()))
+                .toList();
+
+        List<PrototypeDtos.UserSummary> downloaderSummaries = e.getDownloaders() == null
+            ? List.of()
+            : e.getDownloaders().stream()
+                .sorted(Comparator.comparing(UserEntity::getDisplayName, String.CASE_INSENSITIVE_ORDER)
+                    .thenComparing(UserEntity::getUsername, String.CASE_INSENSITIVE_ORDER))
+                .map(downloader -> new PrototypeDtos.UserSummary(
+                    downloader.getPublicId(), downloader.getUsername(), downloader.getDisplayName()))
+                .toList();
+        String downloadAccess = e.getDownloadAccess() == null || e.getDownloadAccess().isBlank()
+            ? "MANAGERS_ONLY"
+            : e.getDownloadAccess();
+
         Set<PrototypeDtos.TagSummary> tagSummaries = e.getTags() != null
             ? e.getTags().stream()
                 .map(t -> new PrototypeDtos.TagSummary(t.getName(), t.getColor()))
@@ -515,7 +709,10 @@ public class PrototypeService {
             e.getCreatedAt(),
             e.getUpdatedAt(),
             currentVersionNo,
-            currentVersionStatus
+            currentVersionStatus,
+            viewerSummaries,
+            downloadAccess,
+            downloaderSummaries
         );
     }
 

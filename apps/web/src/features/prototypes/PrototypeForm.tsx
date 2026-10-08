@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Modal, Form, Input, Select, message } from 'antd';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { prototypeApi, PrototypeItem, CreatePrototypePayload, UpdatePrototypePayload, prototypeKeys, prototypeOwners } from './api';
@@ -14,6 +14,11 @@ export const PrototypeForm: React.FC<PrototypeFormProps> = ({ open, prototype, o
   const [form] = Form.useForm();
   const queryClient = useQueryClient();
   const isEditing = !!prototype;
+  const visibility = Form.useWatch('visibility', form);
+  const downloadAccess = Form.useWatch('downloadAccess', form);
+  // 条件挂载前也读取已初始化的查看人员，避免将下载授权误判为空。
+  const viewerIds = Form.useWatch('viewerIds', { form, preserve: true }) as string[] | undefined;
+  const ownerIds = Form.useWatch('ownerIds', form) as string[] | undefined;
 
   const { data: categories = [] } = useQuery({
     queryKey: ['catalog', 'categories'],
@@ -36,6 +41,23 @@ export const PrototypeForm: React.FC<PrototypeFormProps> = ({ open, prototype, o
     queryFn: () => prototypeApi.listAssignableOwners(),
   });
 
+  const { data: members = [], isSuccess: membersLoaded } = useQuery({
+    queryKey: ['users', 'active'],
+    enabled: open && (visibility === 'RESTRICTED' || downloadAccess === 'SELECTED'),
+    queryFn: () => prototypeApi.listActiveUsers(),
+  });
+
+  const downloadCandidates = useMemo(() => {
+    const excluded = new Set(ownerIds ?? []);
+    const creatorId = prototype?.createdBy?.publicId ?? currentUser?.publicId;
+    if (creatorId) excluded.add(creatorId);
+    return members.filter((member) => {
+      if (excluded.has(member.publicId)) return false;
+      if (visibility === 'RESTRICTED') return (viewerIds ?? []).includes(member.publicId);
+      return true;
+    });
+  }, [members, ownerIds, prototype, currentUser, visibility, viewerIds]);
+
   useEffect(() => {
     if (open) {
       if (prototype) {
@@ -45,6 +67,9 @@ export const PrototypeForm: React.FC<PrototypeFormProps> = ({ open, prototype, o
           categoryId: prototype.category?.code,
           ownerIds: prototypeOwners(prototype).map((owner) => owner.publicId),
           visibility: prototype.visibility,
+          viewerIds: (prototype.viewers ?? []).map((viewer) => viewer.publicId),
+          downloadAccess: prototype.downloadAccess || 'MANAGERS_ONLY',
+          downloaderIds: (prototype.downloaders ?? []).map((person) => person.publicId),
           description: prototype.description,
           publicSummary: prototype.publicSummary,
           tagIds: prototype.tags?.map((t) => t.name) || [],
@@ -54,10 +79,24 @@ export const PrototypeForm: React.FC<PrototypeFormProps> = ({ open, prototype, o
         form.setFieldsValue({
           visibility: 'ALL_INTERNAL',
           ownerIds: currentUser?.publicId ? [currentUser.publicId] : [],
+          viewerIds: [],
+          downloadAccess: 'MANAGERS_ONLY',
+          downloaderIds: [],
         });
       }
     }
   }, [open, prototype, form, currentUser]);
+
+  useEffect(() => {
+    if (!open || downloadAccess !== 'SELECTED' || !membersLoaded) return;
+    const allowed = new Set(downloadCandidates.map((member) => member.publicId));
+    const current = form.getFieldValue('downloaderIds');
+    if (!Array.isArray(current) || current.length === 0) return;
+    const next = current.filter((id: string) => allowed.has(id));
+    if (next.length !== current.length) {
+      form.setFieldValue('downloaderIds', next);
+    }
+  }, [open, downloadAccess, membersLoaded, downloadCandidates, form]);
 
   const createMutation = useMutation({
     mutationFn: (values: CreatePrototypePayload) => prototypeApi.create(values),
@@ -90,6 +129,20 @@ export const PrototypeForm: React.FC<PrototypeFormProps> = ({ open, prototype, o
     try {
       const values = await form.validateFields();
       values.ownerIds = Array.isArray(values.ownerIds) ? values.ownerIds : [];
+      values.viewerIds = values.visibility === 'RESTRICTED' && Array.isArray(values.viewerIds)
+        ? values.viewerIds
+        : [];
+      values.downloadAccess = values.downloadAccess || 'MANAGERS_ONLY';
+      if (values.downloadAccess !== 'SELECTED') {
+        values.downloaderIds = [];
+      } else if (membersLoaded) {
+        const allowed = new Set(downloadCandidates.map((member) => member.publicId));
+        values.downloaderIds = Array.isArray(values.downloaderIds)
+          ? values.downloaderIds.filter((id: string) => allowed.has(id))
+          : [];
+      } else if (!Array.isArray(values.downloaderIds)) {
+        values.downloaderIds = [];
+      }
       if (isEditing) {
         updateMutation.mutate(values);
       } else {
@@ -162,15 +215,80 @@ export const PrototypeForm: React.FC<PrototypeFormProps> = ({ open, prototype, o
           />
         </Form.Item>
 
-        <Form.Item name="visibility" label="可见范围">
+        <Form.Item
+          name="visibility"
+          label="可见范围"
+          extra={visibility === 'RESTRICTED'
+            ? '受限后，只有负责人、创建者、管理员，以及下面选中的人能查看。'
+            : '全员可见和公开时，所有已登录的内部用户都能查看。'}
+        >
           <Select
             options={[
-              { label: '全员可见 (ALL_INTERNAL)', value: 'ALL_INTERNAL' },
-              { label: '公开 (PUBLIC)', value: 'PUBLIC' },
-              { label: '受限访问 (RESTRICTED)', value: 'RESTRICTED' },
+              { label: '全员可见', value: 'ALL_INTERNAL' },
+              { label: '公开', value: 'PUBLIC' },
+              { label: '受限访问', value: 'RESTRICTED' },
             ]}
           />
         </Form.Item>
+
+        {visibility === 'RESTRICTED' && (
+          <Form.Item
+            name="viewerIds"
+            label="可查看的人"
+            extra="不选其他人时，只有负责人、创建者和管理员能查看。负责人始终可以查看和编辑。"
+          >
+            <Select
+              mode="multiple"
+              placeholder="选择可以查看该原型的人"
+              options={members.map((member) => ({
+                label: `${member.displayName} (${member.username})`,
+                value: member.publicId,
+              }))}
+              showSearch
+              optionFilterProp="label"
+              maxCount={50}
+            />
+          </Form.Item>
+        )}
+
+        <Form.Item
+          name="downloadAccess"
+          label="下载权限"
+          extra="负责人、创建者和管理员始终可以下载源文件。这里决定是否再开放给其他能看见该原型的人。下载的是上传时的 HTML 或 ZIP。"
+        >
+          <Select
+            options={[
+              { label: '仅负责人、创建者和管理员', value: 'MANAGERS_ONLY' },
+              { label: '所有能看见的人', value: 'ALL_VIEWERS' },
+              { label: '指定部分能看见的人', value: 'SELECTED' },
+            ]}
+          />
+        </Form.Item>
+
+        {downloadAccess === 'SELECTED' && (
+          <Form.Item
+            name="downloaderIds"
+            label="可下载的人"
+            extra={visibility === 'RESTRICTED'
+              ? '只能从当前可查看的人里选。不选任何人时，只有负责人、创建者和管理员能下载。'
+              : '只能从当前能看见该原型的人里选。不选任何人时，只有负责人、创建者和管理员能下载。'}
+          >
+            <Select
+              mode="multiple"
+              placeholder={visibility === 'RESTRICTED' && downloadCandidates.length === 0
+                ? '请先选择可查看的人'
+                : '选择可以下载源文件的人'}
+              options={downloadCandidates.map((member) => ({
+                label: `${member.displayName} (${member.username})`,
+                value: member.publicId,
+              }))}
+              showSearch
+              optionFilterProp="label"
+              maxCount={50}
+              disabled={visibility === 'RESTRICTED' && downloadCandidates.length === 0}
+            />
+          </Form.Item>
+        )}
 
         <Form.Item name="tagIds" label="标签">
           <Select

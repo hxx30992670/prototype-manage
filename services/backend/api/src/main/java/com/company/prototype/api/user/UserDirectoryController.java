@@ -40,4 +40,16 @@ public class UserDirectoryController {
             .toList();
         return ResponseEntity.ok(Map.of("data", data));
     }
+
+    @GetMapping("/active")
+    @Transactional(readOnly = true)
+    public ResponseEntity<Map<String, Object>> listActiveUsers(CurrentUser currentUser) {
+        if (currentUser == null || (!currentUser.isAdmin() && !currentUser.isCreator())) {
+            throw new ApiException(ApiErrorCode.ACCESS_DENIED);
+        }
+        List<AssignableOwner> data = userRepository.findActiveUsers().stream()
+            .map(user -> new AssignableOwner(user.getPublicId(), user.getUsername(), user.getDisplayName()))
+            .toList();
+        return ResponseEntity.ok(Map.of("data", data));
+    }
 }

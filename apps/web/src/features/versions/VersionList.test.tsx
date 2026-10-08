@@ -166,4 +166,27 @@ describe('VersionList', () => {
 
     openSpy.mockRestore();
   });
+
+  it('shows download without manage actions when the user can only download', async () => {
+    vi.mocked(versionApi.list).mockResolvedValue([
+      {
+        versionId: 'ver-1',
+        versionNo: 1,
+        changeLog: 'v1',
+        status: 'PUBLISHED',
+        sourceType: 'HTML',
+        sourceSize: 128,
+        fileCount: 1,
+        expandedSize: 128,
+        isCurrent: false,
+        createdAt: '2026-09-01T10:00:00Z',
+      },
+    ]);
+
+    renderList(<VersionList prototypeId="proto-123" canManage={false} canDownload />);
+
+    expect(await screen.findByText('下载源文件')).toBeDefined();
+    expect(screen.queryByText('发布新版本')).toBeNull();
+    expect(screen.queryByText('回滚至此版本')).toBeNull();
+  });
 });

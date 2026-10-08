@@ -19,7 +19,7 @@ import {
 import type { UploadProps } from 'antd';
 import { ArrowLeftOutlined, UploadOutlined, DownOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { prototypeApi, prototypeKeys, isPrototypeOwner, ownerNames } from './api';
+import { prototypeApi, prototypeKeys, canDownloadPrototype, downloadAccessLabel, isPrototypeOwner, ownerNames, viewerNames, visibilityLabel } from './api';
 import { getReviewStatusTag } from './status';
 import { authApi } from '@/features/auth/api';
 import { versionApi, versionKeys } from '@/features/versions/api';
@@ -167,6 +167,11 @@ export const PrototypeDetailPage: React.FC = () => {
             {versionStatusLabel(prototype.currentVersionStatus, prototype.currentVersionNo)}
           </Descriptions.Item>
           <Descriptions.Item label="负责人">{ownerNames(prototype)}</Descriptions.Item>
+          <Descriptions.Item label="可见范围">{visibilityLabel(prototype.visibility)}</Descriptions.Item>
+          {prototype.visibility === 'RESTRICTED' && (
+            <Descriptions.Item label="可查看的人">{viewerNames(prototype)}</Descriptions.Item>
+          )}
+          <Descriptions.Item label="下载权限">{downloadAccessLabel(prototype)}</Descriptions.Item>
           <Descriptions.Item label="创建人">{prototype.createdBy?.displayName || '-'}</Descriptions.Item>
           <Descriptions.Item label="更新时间">
             {prototype.updatedAt ? new Date(prototype.updatedAt).toLocaleString() : '-'}
@@ -200,6 +205,7 @@ export const PrototypeDetailPage: React.FC = () => {
                 <VersionList
                   prototypeId={prototype.publicId}
                   canManage={canManage && !prototype.archived}
+                  canDownload={Boolean(currentUser && canDownloadPrototype(prototype, currentUser) && !prototype.archived)}
                 />
               ),
             },

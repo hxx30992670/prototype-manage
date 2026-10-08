@@ -17,6 +17,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -60,6 +61,7 @@ public class PreviewTicketService {
         this.previewBaseUrl = previewBaseUrl.endsWith("/") ? previewBaseUrl.substring(0, previewBaseUrl.length() - 1) : previewBaseUrl;
     }
 
+    @Transactional(readOnly = true)
     public PreviewTicketResponse issueTicketForCurrent(CurrentUser user, String prototypePublicId) {
         PrototypeEntity proto = prototypeRepository.findByPublicIdAndDeletedAtIsNull(prototypePublicId)
             .orElseThrow(() -> new ApiException(ApiErrorCode.RESOURCE_NOT_FOUND));
@@ -78,6 +80,7 @@ public class PreviewTicketService {
         return issueTicket(user, proto, version);
     }
 
+    @Transactional(readOnly = true)
     public PreviewTicketResponse issueTicketForVersion(CurrentUser user, String prototypePublicId, String versionPublicId) {
         PrototypeEntity proto = prototypeRepository.findByPublicIdAndDeletedAtIsNull(prototypePublicId)
             .orElseThrow(() -> new ApiException(ApiErrorCode.RESOURCE_NOT_FOUND));

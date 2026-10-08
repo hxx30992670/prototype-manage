@@ -33,6 +33,9 @@ export interface PrototypeItem {
   createdBy?: UserRef;
   owner?: UserRef;
   owners?: UserRef[];
+  viewers?: UserRef[];
+  downloadAccess?: string;
+  downloaders?: UserRef[];
   tags: Array<{ name: string; color?: string }>;
   rowVersion: number;
   createdAt: string;
@@ -58,6 +61,54 @@ export function ownerNames(item: Pick<PrototypeItem, 'owner' | 'owners'>): strin
   return names.length ? names.join('、') : '-';
 }
 
+export function visibilityLabel(visibility?: string): string {
+  if (visibility === 'RESTRICTED') return '受限访问';
+  if (visibility === 'PUBLIC') return '公开';
+  if (visibility === 'ALL_INTERNAL') return '全员可见';
+  return visibility || '-';
+}
+
+export function viewerNames(item: Pick<PrototypeItem, 'viewers'>): string {
+  const names = (item.viewers ?? []).map((viewer) => viewer.displayName).filter(Boolean);
+  return names.length ? names.join('、') : '仅负责人、创建者和管理员';
+}
+
+export function downloadAccessLabel(item: Pick<PrototypeItem, 'downloadAccess' | 'downloaders'>): string {
+  if (item.downloadAccess === 'ALL_VIEWERS') return '所有能看见的人';
+  if (item.downloadAccess === 'SELECTED') {
+    const names = (item.downloaders ?? []).map((person) => person.displayName).filter(Boolean);
+    return names.length ? `指定：${names.join('、')}` : '仅负责人、创建者和管理员';
+  }
+  return '仅负责人、创建者和管理员';
+}
+
+export function canDownloadPrototype(
+  item: Pick<PrototypeItem, 'visibility' | 'downloadAccess' | 'downloaders' | 'viewers' | 'createdBy' | 'owner' | 'owners'>,
+  user?: { publicId?: string; roles?: string[] } | null,
+): boolean {
+  if (!user?.publicId) return false;
+  const roles = user.roles ?? [];
+  const isAdmin = roles.some((role) => role === 'ADMIN' || role === 'ROLE_ADMIN');
+  if (isAdmin || item.createdBy?.publicId === user.publicId || isPrototypeOwner(item, user.publicId)) {
+    return true;
+  }
+  if (item.downloadAccess === 'ALL_VIEWERS') {
+    if (item.visibility === 'RESTRICTED') {
+      return (item.viewers ?? []).some((viewer) => viewer.publicId === user.publicId);
+    }
+    return item.visibility === 'ALL_INTERNAL' || item.visibility === 'PUBLIC' || !item.visibility;
+  }
+  if (item.downloadAccess === 'SELECTED') {
+    const listed = (item.downloaders ?? []).some((person) => person.publicId === user.publicId);
+    if (!listed) return false;
+    if (item.visibility === 'RESTRICTED') {
+      return (item.viewers ?? []).some((viewer) => viewer.publicId === user.publicId);
+    }
+    return true;
+  }
+  return false;
+}
+
 export interface PrototypePageResponse {
   data: PrototypeItem[];
   pagination: {
@@ -78,6 +129,9 @@ export interface CreatePrototypePayload {
   ownerIds?: string[];
   visibility?: string;
   tagIds?: string[];
+  viewerIds?: string[];
+  downloadAccess?: string;
+  downloaderIds?: string[];
 }
 
 export interface UpdatePrototypePayload {
@@ -89,6 +143,9 @@ export interface UpdatePrototypePayload {
   ownerIds?: string[];
   visibility?: string;
   tagIds?: string[];
+  viewerIds?: string[];
+  downloadAccess?: string;
+  downloaderIds?: string[];
 }
 
 export interface CategoryItem {
@@ -162,6 +219,11 @@ export const prototypeApi = {
 
   async listAssignableOwners(): Promise<UserRef[]> {
     const res = await http.get<{ data: UserRef[] }>('/users/assignable-owners');
+    return res.data.data;
+  },
+
+  async listActiveUsers(): Promise<UserRef[]> {
+    const res = await http.get<{ data: UserRef[] }>('/users/active');
     return res.data.data;
   },
 };

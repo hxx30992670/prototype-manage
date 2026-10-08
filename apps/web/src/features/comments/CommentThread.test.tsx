@@ -55,6 +55,49 @@ describe('CommentThread', () => {
     });
   });
 
+  it.each([false, true])('renders Markdown and safe font colors in comments, replies and resolve notes (public: %s)', async (isPublic) => {
+    const comments: CommentItem[] = [{
+      publicId: 'markdown-comment',
+      prototypePublicId: 'p1',
+      versionPublicId: 'v1',
+      versionNo: 1,
+      content: '### 评论标题\n\n**评论重点**\n\n- 第一项\n- 第二项\n\n<span style="color:red;position:fixed" onclick="alert(1)">红色说明</span>',
+      status: 'RESOLVED',
+      authorType: 'USER',
+      authorName: '张三',
+      resolvedBy: '李四',
+      resolveNote: '**解决重点** <font color="#00aa00">绿色说明</font>',
+      rowVersion: 0,
+      createdAt: '2026-10-08T00:00:00Z',
+      isDeleted: false,
+      replies: [{
+        publicId: 'markdown-reply',
+        content: '**回复重点** <span style="color:blue">蓝色说明</span>',
+        authorType: 'USER',
+        authorName: '李四',
+        createdAt: '2026-10-08T01:00:00Z',
+        isDeleted: false,
+      }],
+    }];
+    vi.mocked(commentApi.list).mockResolvedValue(comments);
+    vi.mocked(publicCommentApi.list).mockResolvedValue(comments);
+
+    const { container } = render(
+      <CommentThread prototypeId="p1" currentVersionId="v1" isPublic={isPublic} publicToken="share-token" />,
+    );
+
+    expect(await screen.findByRole('heading', { name: '评论标题', level: 3 })).toBeInTheDocument();
+    for (const text of ['评论重点', '回复重点', '解决重点']) {
+      expect(screen.getByText(text).tagName).toBe('STRONG');
+    }
+    expect(screen.getAllByRole('listitem').map((item) => item.textContent)).toEqual(['第一项', '第二项']);
+    expect(screen.getByText('红色说明')).toHaveStyle({ color: 'rgb(255, 0, 0)' });
+    expect(screen.getByText('绿色说明')).toHaveStyle({ color: 'rgb(0, 170, 0)' });
+    expect(screen.getByText('蓝色说明')).toHaveStyle({ color: 'rgb(0, 0, 255)' });
+    expect(container.querySelector('[onclick]')).toBeNull();
+    expect(screen.getByText('红色说明').style.position).toBe('');
+  });
+
   it('creates new comment when submitting form', async () => {
     (commentApi.list as any).mockResolvedValue([]);
     (commentApi.create as any).mockResolvedValue({

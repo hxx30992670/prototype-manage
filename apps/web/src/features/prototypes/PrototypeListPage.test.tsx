@@ -15,6 +15,7 @@ vi.mock('./api', async (importOriginal) => {
       listCategories: vi.fn().mockResolvedValue([{ code: 'finance', name: '金融业务', sortNo: 1 }]),
       listTags: vi.fn().mockResolvedValue([{ name: 'React', color: '#1677ff' }]),
       listAssignableOwners: vi.fn().mockResolvedValue([]),
+      listActiveUsers: vi.fn().mockResolvedValue([]),
       archive: vi.fn(),
       updateReviewStatus: vi.fn(),
       delete: vi.fn(),

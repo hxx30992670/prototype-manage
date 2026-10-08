@@ -39,11 +39,13 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.Set;
 
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -225,5 +227,70 @@ class VersionControllerIT {
             .andExpect(status().isOk())
             .andExpect(header().string("Content-Type", "application/octet-stream"))
             .andExpect(header().exists("Content-Disposition"));
+    }
+
+    @Test
+    void downloadTicketFollowsVisiblePeople() throws Exception {
+        RoleEntity viewerRole = roleRepository.findByCode("VIEWER")
+            .orElseGet(() -> roleRepository.save(new RoleEntity("VIEWER", "查看者")));
+
+        UserEntity viewer = new UserEntity();
+        viewer.setPublicId(idGenerator.nextId());
+        viewer.setUsername("viewer_user");
+        viewer.setPasswordHash("hash");
+        viewer.setDisplayName("查看者");
+        viewer.setRoles(Set.of(viewerRole));
+        viewer = userRepository.save(viewer);
+
+        UserEntity stranger = new UserEntity();
+        stranger.setPublicId(idGenerator.nextId());
+        stranger.setUsername("stranger_user");
+        stranger.setPasswordHash("hash");
+        stranger.setDisplayName("路人");
+        stranger.setRoles(Set.of(viewerRole));
+        stranger = userRepository.save(stranger);
+
+        prototype.setVisibility("RESTRICTED");
+        prototype.setDownloadAccess("SELECTED");
+        prototype.setViewers(new HashSet<>(Set.of(viewer, stranger)));
+        prototype.setDownloaders(new HashSet<>(Set.of(viewer)));
+        prototype = prototypeRepository.save(prototype);
+
+        PrototypeVersionEntity version = new PrototypeVersionEntity();
+        version.setPublicId(idGenerator.nextId());
+        version.setPrototype(prototype);
+        version.setVersionNo(1);
+        version.setChangeLog("v1");
+        version.setStatus(VersionStatus.PUBLISHED);
+        version.setSourceType("HTML");
+        version.setSourceObjectKey("source/v1.html");
+        version.setSourceSize(100L);
+        version.setChecksum("hash");
+        version.setCreatedBy(creatorUser);
+        version = versionRepository.save(version);
+
+        String ticketUrl = "/api/v1/prototypes/" + prototype.getPublicId() + "/versions/" + version.getPublicId() + "/download-ticket";
+
+        mockMvc.perform(post(ticketUrl).with(csrf()).with(user("viewer_user").roles("VIEWER")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.url").isNotEmpty());
+
+        mockMvc.perform(post(ticketUrl).with(csrf()).with(user("stranger_user").roles("VIEWER")))
+            .andExpect(status().isForbidden());
+
+        prototype = prototypeRepository.findById(prototype.getId()).orElseThrow();
+        prototype.setDownloadAccess("MANAGERS_ONLY");
+        prototypeRepository.saveAndFlush(prototype);
+        mockMvc.perform(post(ticketUrl).with(csrf()).with(user("viewer_user").roles("VIEWER")))
+            .andExpect(status().isForbidden());
+
+        prototype = prototypeRepository.findById(prototype.getId()).orElseThrow();
+        prototype.setDownloadAccess("ALL_VIEWERS");
+        prototypeRepository.saveAndFlush(prototype);
+        mockMvc.perform(post(ticketUrl).with(csrf()).with(user("stranger_user").roles("VIEWER")))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(post(ticketUrl).with(csrf()).with(user("creator_user").roles("CREATOR")))
+            .andExpect(status().isOk());
     }
 }

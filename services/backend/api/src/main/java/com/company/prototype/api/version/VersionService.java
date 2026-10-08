@@ -186,6 +186,7 @@ public class VersionService {
         return toItemResponse(version, proto);
     }
 
+    @Transactional(readOnly = true)
     public VersionDtos.PublishJobStatusResponse getPublishJobStatus(CurrentUser user, String prototypePublicId, String versionPublicId) {
         PrototypeEntity proto = prototypeRepository.findByPublicIdAndDeletedAtIsNull(prototypePublicId)
             .orElseThrow(() -> new ApiException(ApiErrorCode.RESOURCE_NOT_FOUND));
@@ -279,11 +280,12 @@ public class VersionService {
         return toItemResponse(targetVersion, lockedProto);
     }
 
+    @Transactional(readOnly = true)
     public VersionDtos.DownloadTicketResponse createDownloadTicket(CurrentUser user, String prototypePublicId, String versionPublicId) {
         PrototypeEntity proto = prototypeRepository.findByPublicIdAndDeletedAtIsNull(prototypePublicId)
             .orElseThrow(() -> new ApiException(ApiErrorCode.RESOURCE_NOT_FOUND));
 
-        if (!authorizationService.canManage(user, proto)) {
+        if (!authorizationService.canDownload(user, proto)) {
             throw new ApiException(ApiErrorCode.ACCESS_DENIED);
         }
 

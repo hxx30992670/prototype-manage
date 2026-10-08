@@ -16,6 +16,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.convert.DurationStyle;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
@@ -32,6 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -55,6 +57,9 @@ public class AuthService {
 
     @Value("${server.servlet.session.cookie.secure:false}")
     private boolean cookieSecure = false;
+
+    @Value("${server.servlet.session.timeout:10d}")
+    private String sessionTimeout = "10d";
 
     // In-memory fallback if Redis is not configured
     private final Map<String, Integer> memoryFailCounts = new ConcurrentHashMap<>();
@@ -121,6 +126,8 @@ public class AuthService {
             oldSession.invalidate();
         }
         HttpSession newSession = request.getSession(true);
+        Duration loginLifetime = DurationStyle.detectAndParse(sessionTimeout, ChronoUnit.SECONDS);
+        newSession.setMaxInactiveInterval(Math.toIntExact(loginLifetime.getSeconds()));
 
         Set<String> roleCodes = user.getRoles().stream()
             .map(RoleEntity::getCode)
@@ -152,6 +159,7 @@ public class AuthService {
         if (response != null) {
             ResponseCookie sessionCookie = ResponseCookie.from(cookieName, newSession.getId())
                 .path("/")
+                .maxAge(loginLifetime)
                 .httpOnly(true)
                 .sameSite("Lax")
                 .secure(cookieSecure)

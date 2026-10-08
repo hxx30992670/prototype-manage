@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Modal, Input, message } from 'antd';
 import { CommentItem, commentApi, publicCommentApi } from './api';
+import { SafeMarkdown } from '@/lib/markdown';
 
 interface CommentThreadProps {
   prototypeId?: string;
@@ -325,15 +326,16 @@ export const CommentThread: React.FC<CommentThreadProps> = ({
               </div>
 
               {/* Comment Body */}
-              <div className={`mt-2 text-xs text-gray-800 ${c.isDeleted ? 'italic text-gray-400' : ''}`}>
-                {c.content}
-              </div>
+              <SafeMarkdown
+                source={c.content}
+                className={`mt-2 text-xs ${c.isDeleted ? 'italic text-gray-400' : 'text-gray-800'}`}
+              />
 
               {/* Resolve Note if any */}
               {c.resolveNote && (
                 <div className="mt-2 rounded bg-emerald-50 p-2 text-xs text-emerald-900">
                   <span className="font-semibold">解决说明 ({c.resolvedBy})：</span>
-                  {c.resolveNote}
+                  <SafeMarkdown source={c.resolveNote} className="text-xs text-emerald-900" />
                 </div>
               )}
 
@@ -346,9 +348,10 @@ export const CommentThread: React.FC<CommentThreadProps> = ({
                         <span className="font-semibold text-gray-900">{r.authorName}</span>
                         <span className="text-gray-400">{new Date(r.createdAt).toLocaleString()}</span>
                       </div>
-                      <div className={`mt-1 text-gray-800 ${r.isDeleted ? 'italic text-gray-400' : ''}`}>
-                        {r.content}
-                      </div>
+                      <SafeMarkdown
+                        source={r.content}
+                        className={`mt-1 text-xs ${r.isDeleted ? 'italic text-gray-400' : 'text-gray-800'}`}
+                      />
                     </div>
                   ))}
                 </div>

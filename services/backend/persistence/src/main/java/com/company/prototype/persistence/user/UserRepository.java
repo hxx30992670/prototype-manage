@@ -23,4 +23,11 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
         ORDER BY u.displayName ASC
         """)
     List<UserEntity> findActiveAssignableOwners();
+
+    @Query("""
+        SELECT u FROM UserEntity u
+        WHERE u.status = 'ACTIVE'
+        ORDER BY u.displayName ASC
+        """)
+    List<UserEntity> findActiveUsers();
 }

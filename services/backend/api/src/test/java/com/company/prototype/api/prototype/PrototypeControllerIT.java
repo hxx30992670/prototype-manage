@@ -33,7 +33,9 @@ import java.util.Set;
 
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasItems;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -195,7 +197,9 @@ class PrototypeControllerIT {
                 .content(createPayload("my-proto", "我的原型", creatorUser.getPublicId())))
             .andExpect(status().isCreated())
             .andExpect(jsonPath("$.data.code").value("my-proto"))
-            .andExpect(jsonPath("$.data.reviewStatus").value("DRAFT"));
+            .andExpect(jsonPath("$.data.reviewStatus").value("DRAFT"))
+            .andExpect(jsonPath("$.data.downloadAccess").value("MANAGERS_ONLY"))
+            .andExpect(jsonPath("$.data.downloaders", hasSize(0)));
 
         PrototypeEntity created = prototypeRepository.findByCodeAndDeletedAtIsNull("my-proto").orElseThrow();
 
@@ -325,6 +329,122 @@ class PrototypeControllerIT {
     }
 
     @Test
+    void restrictedPrototypeIsVisibleOnlyToSelectedViewers() throws Exception {
+        mockMvc.perform(post("/api/v1/prototypes")
+                .with(user("creator").roles("CREATOR"))
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(createRestrictedPayload(
+                    "restricted-proto",
+                    "受限原型",
+                    creatorUser.getPublicId(),
+                    viewerUser.getPublicId()
+                )))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.data.visibility").value("RESTRICTED"))
+            .andExpect(jsonPath("$.data.viewers[*].username", hasItem("viewer")));
+
+        PrototypeEntity saved = prototypeRepository.findAll().stream()
+            .filter(proto -> "restricted-proto".equals(proto.getCode()))
+            .findFirst()
+            .orElseThrow();
+
+        mockMvc.perform(get("/api/v1/prototypes/" + saved.getPublicId())
+                .with(user("viewer").roles("VIEWER")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.code").value("restricted-proto"));
+
+        mockMvc.perform(get("/api/v1/prototypes/" + saved.getPublicId())
+                .with(user("other").roles("CREATOR")))
+            .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/api/v1/prototypes")
+                .with(user("viewer").roles("VIEWER")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[*].code", hasItem("restricted-proto")));
+
+        mockMvc.perform(get("/api/v1/prototypes")
+                .with(user("other").roles("CREATOR")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.pagination.total").value(0));
+
+        mockMvc.perform(put("/api/v1/prototypes/" + saved.getPublicId())
+                .with(user("creator").roles("CREATOR"))
+                .with(csrf())
+                .header(HttpHeaders.IF_MATCH, "\"" + saved.getRowVersion() + "\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(updateRestrictedPayload("受限原型", creatorUser.getPublicId())))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.viewers", hasSize(0)));
+
+        saved = prototypeRepository.findById(saved.getId()).orElseThrow();
+
+        mockMvc.perform(get("/api/v1/prototypes/" + saved.getPublicId())
+                .with(user("viewer").roles("VIEWER")))
+            .andExpect(status().isForbidden());
+
+        mockMvc.perform(put("/api/v1/prototypes/" + saved.getPublicId())
+                .with(user("creator").roles("CREATOR"))
+                .with(csrf())
+                .header(HttpHeaders.IF_MATCH, "\"" + saved.getRowVersion() + "\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(updatePayload("受限原型", creatorUser.getPublicId())))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.visibility").value("ALL_INTERNAL"))
+            .andExpect(jsonPath("$.data.viewers", hasSize(0)));
+
+        mockMvc.perform(get("/api/v1/prototypes/" + saved.getPublicId())
+                .with(user("other").roles("CREATOR")))
+            .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(username = "creator", roles = {"CREATOR"})
+    void unknownOrDisabledViewerIsRejected() throws Exception {
+        mockMvc.perform(post("/api/v1/prototypes")
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(createRestrictedPayload(
+                    "missing-viewer",
+                    "不存在的查看人",
+                    creatorUser.getPublicId(),
+                    "01NOTEXIST"
+                )))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
+
+        viewerUser.setStatus("DISABLED");
+        userRepository.save(viewerUser);
+
+        mockMvc.perform(post("/api/v1/prototypes")
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(createRestrictedPayload(
+                    "disabled-viewer",
+                    "禁用的查看人",
+                    creatorUser.getPublicId(),
+                    viewerUser.getPublicId()
+                )))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
+    @Test
+    @WithMockUser(username = "creator", roles = {"CREATOR"})
+    void creatorCanListActiveUsers() throws Exception {
+        mockMvc.perform(get("/api/v1/users/active"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[*].username", hasItems("admin", "creator", "other", "viewer")));
+    }
+
+    @Test
+    @WithMockUser(username = "viewer", roles = {"VIEWER"})
+    void viewerCannotListActiveUsers() throws Exception {
+        mockMvc.perform(get("/api/v1/users/active"))
+            .andExpect(status().isForbidden());
+    }
+
+    @Test
     @WithMockUser(username = "creator", roles = {"CREATOR"})
     void creatorCanListAssignableOwners() throws Exception {
         mockMvc.perform(get("/api/v1/users/assignable-owners"))
@@ -360,6 +480,104 @@ class PrototypeControllerIT {
                 .content(updatePayload("尝试修改归档原型", creatorUser.getPublicId())))
             .andExpect(status().isConflict())
             .andExpect(jsonPath("$.code").value("PROTOTYPE_ARCHIVED"));
+    }
+
+    @Test
+    @WithMockUser(username = "creator", roles = {"CREATOR"})
+    void selectedDownloadersStayInsideTheVisiblePeople() throws Exception {
+        String createBody = """
+            {
+              "code": "dl-proto",
+              "name": "可下载原型",
+              "description": "测试描述",
+              "categoryId": "%s",
+              "ownerId": "%s",
+              "visibility": "RESTRICTED",
+              "viewerIds": ["%s"],
+              "downloadAccess": "SELECTED",
+              "downloaderIds": ["%s", "%s"],
+              "tagIds": []
+            }
+            """.formatted(
+            category.getCode(),
+            creatorUser.getPublicId(),
+            viewerUser.getPublicId(),
+            viewerUser.getPublicId(),
+            otherCreatorUser.getPublicId()
+        );
+
+        mockMvc.perform(post("/api/v1/prototypes")
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(createBody))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.data.downloadAccess").value("SELECTED"))
+            .andExpect(jsonPath("$.data.downloaders", hasSize(1)))
+            .andExpect(jsonPath("$.data.downloaders[0].publicId").value(viewerUser.getPublicId()));
+
+        PrototypeEntity saved = prototypeRepository.findByCodeAndDeletedAtIsNull("dl-proto").orElseThrow();
+        String clearViewers = """
+            {
+              "name": "可下载原型",
+              "description": "测试描述",
+              "categoryId": "%s",
+              "ownerId": "%s",
+              "visibility": "RESTRICTED",
+              "viewerIds": [],
+              "downloadAccess": "SELECTED",
+              "downloaderIds": ["%s"],
+              "tagIds": []
+            }
+            """.formatted(category.getCode(), creatorUser.getPublicId(), viewerUser.getPublicId());
+
+        mockMvc.perform(put("/api/v1/prototypes/" + saved.getPublicId())
+                .with(csrf())
+                .header(HttpHeaders.IF_MATCH, "\"" + saved.getRowVersion() + "\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(clearViewers))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.downloadAccess").value("SELECTED"))
+            .andExpect(jsonPath("$.data.downloaders", hasSize(0)));
+
+        saved = prototypeRepository.findByCodeAndDeletedAtIsNull("dl-proto").orElseThrow();
+        String openToEveryone = """
+            {
+              "name": "可下载原型",
+              "description": "测试描述",
+              "categoryId": "%s",
+              "ownerId": "%s",
+              "visibility": "ALL_INTERNAL",
+              "downloadAccess": "ALL_VIEWERS",
+              "downloaderIds": ["%s"],
+              "tagIds": []
+            }
+            """.formatted(category.getCode(), creatorUser.getPublicId(), viewerUser.getPublicId());
+
+        mockMvc.perform(put("/api/v1/prototypes/" + saved.getPublicId())
+                .with(csrf())
+                .header(HttpHeaders.IF_MATCH, "\"" + saved.getRowVersion() + "\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(openToEveryone))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.downloadAccess").value("ALL_VIEWERS"))
+            .andExpect(jsonPath("$.data.downloaders", hasSize(0)));
+
+        mockMvc.perform(post("/api/v1/prototypes")
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "code": "bad-download",
+                      "name": "错误下载权限",
+                      "categoryId": "%s",
+                      "ownerId": "%s",
+                      "visibility": "ALL_INTERNAL",
+                      "downloadAccess": "EVERYONE",
+                      "tagIds": []
+                    }
+                    """.formatted(category.getCode(), creatorUser.getPublicId())))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
     }
 
     private String createPayload(String code, String name, String ownerId) {
@@ -420,6 +638,38 @@ class PrototypeControllerIT {
   "tagIds": ["%s"]
 }
 """.formatted(name, category.getCode(), ownersJson, tag.getName());
+    }
+
+    private String createRestrictedPayload(String code, String name, String ownerId, String... viewerIds) {
+        String viewersJson = java.util.Arrays.stream(viewerIds)
+            .map(id -> "\"" + id + "\"")
+            .collect(java.util.stream.Collectors.joining(", "));
+        return """
+{
+  "code": "%s",
+  "name": "%s",
+  "description": "测试描述",
+  "categoryId": "%s",
+  "ownerId": "%s",
+  "visibility": "RESTRICTED",
+  "viewerIds": [%s],
+  "tagIds": ["%s"]
+}
+""".formatted(code, name, category.getCode(), ownerId, viewersJson, tag.getName());
+    }
+
+    private String updateRestrictedPayload(String name, String ownerId) {
+        return """
+{
+  "name": "%s",
+  "description": "更新后的描述",
+  "categoryId": "%s",
+  "ownerId": "%s",
+  "visibility": "RESTRICTED",
+  "viewerIds": [],
+  "tagIds": ["%s"]
+}
+""".formatted(name, category.getCode(), ownerId, tag.getName());
     }
 
     private String updatePayload(String name, String ownerId) {

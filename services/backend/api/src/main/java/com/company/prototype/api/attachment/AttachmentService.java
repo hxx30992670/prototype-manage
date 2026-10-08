@@ -218,6 +218,7 @@ public class AttachmentService {
         attachmentRepository.save(entity);
     }
 
+    @Transactional(readOnly = true)
     public AttachmentDtos.DownloadTicketResponse createDownloadTicket(CurrentUser user, String publicId) {
         PrototypeAttachmentEntity entity = attachmentRepository.findByPublicIdAndDeletedAtIsNull(publicId)
             .orElseThrow(() -> new ApiException(ApiErrorCode.RESOURCE_NOT_FOUND));

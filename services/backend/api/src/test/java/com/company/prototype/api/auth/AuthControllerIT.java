@@ -26,6 +26,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.hamcrest.Matchers.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
@@ -105,7 +106,7 @@ class AuthControllerIT {
 
     @Test
     void loginCreatesHostOnlyHttpOnlyRootPathCookieInHttpMode() throws Exception {
-        mockMvc.perform(post("/api/v1/auth/login")
+        MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
                 .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
@@ -116,11 +117,15 @@ class AuthControllerIT {
                 containsString("PH_ADMIN_SESSION="),
                 containsString("HttpOnly"),
                 containsString("Path=/"),
+                containsString("Max-Age=864000"),
                 not(containsString("Domain=")),
                 not(containsString("Secure"))
             )))
             .andExpect(jsonPath("$.data.username").value("testadmin"))
-            .andExpect(jsonPath("$.data.mustChangePassword").value(true));
+            .andExpect(jsonPath("$.data.mustChangePassword").value(true))
+            .andReturn();
+
+        assertEquals(864000, result.getRequest().getSession().getMaxInactiveInterval());
     }
 
     @Test
@@ -172,7 +177,8 @@ class AuthControllerIT {
 
         // 4. Logout
         mockMvc.perform(post("/api/v1/auth/logout").session(session).with(csrf()))
-            .andExpect(status().isOk());
+            .andExpect(status().isOk())
+            .andExpect(header().string("Set-Cookie", containsString("Max-Age=0")));
 
         // 5. Subsequent /me returns 401
         mockMvc.perform(get("/api/v1/auth/me").session(session))

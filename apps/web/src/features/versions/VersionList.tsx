@@ -8,6 +8,7 @@ import { UploadVersionDialog } from './UploadVersionDialog';
 interface VersionListProps {
   prototypeId: string;
   canManage?: boolean;
+  canDownload?: boolean;
 }
 
 const STAGE_LABEL_MAP: Record<string, string> = {
@@ -21,7 +22,9 @@ const STAGE_LABEL_MAP: Record<string, string> = {
 export const VersionList: React.FC<VersionListProps> = ({
   prototypeId,
   canManage = false,
+  canDownload,
 }) => {
+  const allowDownload = canDownload ?? canManage;
   const queryClient = useQueryClient();
   const [isUploadOpen, setIsUploadOpen] = useState(false);
 
@@ -245,7 +248,7 @@ export const VersionList: React.FC<VersionListProps> = ({
                       </button>
                     )}
 
-                    {canManage && (
+                    {allowDownload && (
                       <button
                         onClick={() => handleDownload(ver)}
                         className="rounded border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"

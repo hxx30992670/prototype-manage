@@ -2,13 +2,14 @@ server:
   port: 8080
   servlet:
     session:
-      # Sliding idle timeout. Spring default is 30m, which logs users out after a short pause.
-      timeout: ${SESSION_TIMEOUT:12h}
+      # 登录会话空闲超时为 10 天，浏览器关闭后仍保留登录 Cookie。
+      timeout: ${SESSION_TIMEOUT:10d}
       cookie:
         name: PH_ADMIN_SESSION
         http-only: true
         same-site: lax
         path: /
+        max-age: ${SESSION_TIMEOUT:10d}
         secure: ${SESSION_COOKIE_SECURE:false}
 
 management:

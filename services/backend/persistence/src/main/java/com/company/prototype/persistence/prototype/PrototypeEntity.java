@@ -44,6 +44,9 @@ public class PrototypeEntity {
     @Column(nullable = false, length = 32)
     private String visibility = "ALL_INTERNAL";
 
+    @Column(name = "download_access", nullable = false, length = 32)
+    private String downloadAccess = "MANAGERS_ONLY";
+
     @Column(name = "review_status", nullable = false, length = 16)
     private String reviewStatus = "DRAFT";
 
@@ -85,6 +88,22 @@ public class PrototypeEntity {
     )
     private Set<UserEntity> owners = new HashSet<>();
 
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(
+        name = "prototype_viewer_rel",
+        joinColumns = @JoinColumn(name = "prototype_id"),
+        inverseJoinColumns = @JoinColumn(name = "user_id")
+    )
+    private Set<UserEntity> viewers = new HashSet<>();
+
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(
+        name = "prototype_downloader_rel",
+        joinColumns = @JoinColumn(name = "prototype_id"),
+        inverseJoinColumns = @JoinColumn(name = "user_id")
+    )
+    private Set<UserEntity> downloaders = new HashSet<>();
+
     public PrototypeEntity() {}
 
     public Long getId() { return id; }
@@ -107,6 +126,8 @@ public class PrototypeEntity {
     public void setOwner(UserEntity owner) { this.owner = owner; }
     public String getVisibility() { return visibility; }
     public void setVisibility(String visibility) { this.visibility = visibility; }
+    public String getDownloadAccess() { return downloadAccess; }
+    public void setDownloadAccess(String downloadAccess) { this.downloadAccess = downloadAccess; }
     public String getReviewStatus() { return reviewStatus; }
     public void setReviewStatus(String reviewStatus) { this.reviewStatus = reviewStatus; }
     public Long getCurrentVersionId() { return currentVersionId; }
@@ -127,4 +148,8 @@ public class PrototypeEntity {
     public void setTags(Set<TagEntity> tags) { this.tags = tags; }
     public Set<UserEntity> getOwners() { return owners; }
     public void setOwners(Set<UserEntity> owners) { this.owners = owners != null ? owners : new HashSet<>(); }
+    public Set<UserEntity> getViewers() { return viewers; }
+    public void setViewers(Set<UserEntity> viewers) { this.viewers = viewers != null ? viewers : new HashSet<>(); }
+    public Set<UserEntity> getDownloaders() { return downloaders; }
+    public void setDownloaders(Set<UserEntity> downloaders) { this.downloaders = downloaders != null ? downloaders : new HashSet<>(); }
 }

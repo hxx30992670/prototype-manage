@@ -34,7 +34,13 @@ public final class PrototypeDtos {
 
         String visibility,
 
-        Set<String> tagIds
+        Set<String> tagIds,
+
+        Set<String> viewerIds,
+
+        String downloadAccess,
+
+        Set<String> downloaderIds
     ) {}
 
     public record UpdatePrototypeRequest(
@@ -56,7 +62,13 @@ public final class PrototypeDtos {
 
         String visibility,
 
-        Set<String> tagIds
+        Set<String> tagIds,
+
+        Set<String> viewerIds,
+
+        String downloadAccess,
+
+        Set<String> downloaderIds
     ) {}
 
     public record UpdateReviewStatusRequest(
@@ -104,7 +116,10 @@ public final class PrototypeDtos {
         Instant createdAt,
         Instant updatedAt,
         Integer currentVersionNo,
-        String currentVersionStatus
+        String currentVersionStatus,
+        List<UserSummary> viewers,
+        String downloadAccess,
+        List<UserSummary> downloaders
     ) {}
 
     public record Pagination(
