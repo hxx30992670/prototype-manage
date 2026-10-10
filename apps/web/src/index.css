@@ -199,10 +199,10 @@ html[data-theme="light"] {
 @keyframes prism-shift {
   0%,
   100% {
-    background-position: 0% 40%, 100% 80%, 0% 50%;
+    transform: scale(1.04) translate3d(-1%, 1%, 0);
   }
   50% {
-    background-position: 20% 20%, 80% 100%, 100% 50%;
+    transform: scale(1.04) translate3d(1%, -1%, 0);
   }
 }
 
@@ -217,10 +217,10 @@ html[data-theme="light"] {
 
 @keyframes caustic-drift {
   from {
-    background-position: 0 0;
+    transform: translate3d(-40px, -60px, 0);
   }
   to {
-    background-position: 80px 120px;
+    transform: translate3d(40px, 60px, 0);
   }
 }
 
@@ -301,17 +301,19 @@ html[data-theme="light"] {
     radial-gradient(ellipse 55% 40% at 88% 92%, rgb(var(--ember-rgb) / calc(var(--prism-strength) * 0.7)), transparent 52%),
     linear-gradient(118deg, transparent 28%, rgb(var(--glow-rgb) / 0.05) 50%, transparent 72%);
   background-size: 100% 100%, 100% 100%, 240% 240%;
+  background-position: 0% 40%, 100% 80%, 0% 50%;
   animation: prism-shift 18s ease-in-out infinite;
 }
 
 .light-caustic {
+  inset: -120px;
   opacity: var(--caustic-opacity);
   background: repeating-linear-gradient(
     -28deg,
     transparent 0 46px,
     rgb(var(--glow-rgb) / 0.045) 46px 48px
   );
-  animation: caustic-drift 22s linear infinite;
+  animation: caustic-drift 22s linear infinite alternate;
   mask-image: radial-gradient(circle at 28% 18%, black 18%, transparent 72%);
 }
 
