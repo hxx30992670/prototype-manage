@@ -2,6 +2,7 @@ package com.company.prototype.api.attachment;
 
 import com.company.prototype.api.admin.AdminConfigService;
 import com.company.prototype.api.audit.Audited;
+import com.company.prototype.api.download.DownloadTicketRecord;
 import com.company.prototype.api.security.CurrentUser;
 import com.company.prototype.api.security.PrototypeAuthorizationService;
 import com.company.prototype.common.error.ApiErrorCode;
@@ -228,7 +229,11 @@ public class AttachmentService {
         }
 
         String ticket = UUID.randomUUID().toString().replace("-", "");
-        String val = entity.getObjectKey() + "|" + entity.getName();
+        String val = new DownloadTicketRecord(
+            DownloadTicketRecord.Type.ATTACHMENT,
+            entity.getPrototype().getPublicId(),
+            entity.getPublicId()
+        ).encode();
 
         redisTemplate.opsForValue().set("download:ticket:" + ticket, val, Duration.ofMinutes(5));
         return new AttachmentDtos.DownloadTicketResponse("/api/v1/downloads/" + ticket, Instant.now().plus(Duration.ofMinutes(5)));

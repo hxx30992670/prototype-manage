@@ -206,6 +206,11 @@ describe('canDownloadPrototype', () => {
     )).toBe(true);
   });
 
+  it('does not treat an owner or creator downgraded to viewer as a manager', () => {
+    const downgradedOwner = { publicId: prototype.owner.publicId, roles: ['VIEWER'] };
+    expect(canDownloadPrototype({ ...prototype, downloadAccess: 'MANAGERS_ONLY' }, downgradedOwner)).toBe(false);
+  });
+
   it('lets every current viewer download when the policy is all visible people', () => {
     expect(canDownloadPrototype({ ...prototype, downloadAccess: 'ALL_VIEWERS' }, viewer)).toBe(true);
     expect(canDownloadPrototype({

@@ -97,6 +97,7 @@ public class UserAdminService {
             .orElseThrow(() -> new ApiException(ApiErrorCode.RESOURCE_NOT_FOUND));
         assertMutable(user);
 
+        Set<String> previousRoles = roleCodes(user);
         user.setDisplayName(req.displayName().trim());
         user.setDepartment(req.department());
         if (req.roles() != null) {
@@ -106,6 +107,7 @@ public class UserAdminService {
             replaceRoles(user, req.roles());
         }
         user = userRepository.save(user);
+        invalidateRoleAccessIfChanged(user, previousRoles);
 
         logAudit("USER_UPDATE", user.getPublicId(), "更新用户资料" + (req.roles() != null ? "与角色" : ""));
         return toResponse(user);
@@ -130,11 +132,27 @@ public class UserAdminService {
             .orElseThrow(() -> new ApiException(ApiErrorCode.RESOURCE_NOT_FOUND));
         assertMutable(user);
 
+        Set<String> previousRoles = roleCodes(user);
         replaceRoles(user, req.roles());
         user = userRepository.save(user);
+        invalidateRoleAccessIfChanged(user, previousRoles);
 
         logAudit("USER_UPDATE_ROLES", user.getPublicId(), "更新用户角色");
         return toResponse(user);
+    }
+
+    private void invalidateRoleAccessIfChanged(UserEntity user, Set<String> previousRoles) {
+        if (previousRoles.equals(roleCodes(user))) {
+            return;
+        }
+        expireAllSessions(user);
+        if (previewTicketService != null) {
+            previewTicketService.revokeUserTickets(user.getId());
+        }
+    }
+
+    private Set<String> roleCodes(UserEntity user) {
+        return user.getRoles().stream().map(RoleEntity::getCode).collect(Collectors.toSet());
     }
 
     @Transactional

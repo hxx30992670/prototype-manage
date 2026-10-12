@@ -1,6 +1,7 @@
 package com.company.prototype.api.version;
 
 import com.company.prototype.api.audit.Audited;
+import com.company.prototype.api.download.DownloadTicketRecord;
 import com.company.prototype.api.security.CurrentUser;
 import com.company.prototype.api.security.PrototypeAuthorizationService;
 import com.company.prototype.common.error.ApiErrorCode;
@@ -293,9 +294,11 @@ public class VersionService {
             .orElseThrow(() -> new ApiException(ApiErrorCode.RESOURCE_NOT_FOUND));
 
         String ticket = UUID.randomUUID().toString().replace("-", "");
-        String ext = version.getSourceType().equalsIgnoreCase("ZIP") ? ".zip" : ".html";
-        String filename = proto.getCode() + "-v" + version.getVersionNo() + ext;
-        String val = version.getSourceObjectKey() + "|" + filename;
+        String val = new DownloadTicketRecord(
+            DownloadTicketRecord.Type.VERSION,
+            proto.getPublicId(),
+            version.getPublicId()
+        ).encode();
 
         redisTemplate.opsForValue().set("download:ticket:" + ticket, val, Duration.ofMinutes(5));
 

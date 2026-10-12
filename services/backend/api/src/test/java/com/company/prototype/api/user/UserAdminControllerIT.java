@@ -1,6 +1,7 @@
 package com.company.prototype.api.user;
 
 import com.company.prototype.api.PrototypeApiApplication;
+import com.company.prototype.api.security.CurrentUser;
 import com.company.prototype.persistence.user.RoleEntity;
 import com.company.prototype.persistence.user.RoleRepository;
 import com.company.prototype.persistence.user.UserEntity;
@@ -11,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.session.SessionRegistry;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -23,7 +25,9 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.Set;
+import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -64,6 +68,9 @@ class UserAdminControllerIT {
 
     @Autowired
     private RoleRepository roleRepository;
+
+    @Autowired
+    private SessionRegistry sessionRegistry;
 
     @BeforeEach
     void setUp() {
@@ -173,6 +180,12 @@ class UserAdminControllerIT {
         otherAdmin.setRoles(Set.of(adminRole));
         otherAdmin = userRepository.save(otherAdmin);
 
+        String sessionId = "role-change-" + UUID.randomUUID();
+        sessionRegistry.registerNewSession(sessionId, new CurrentUser(
+            otherAdmin.getId(), otherAdmin.getPublicId(), otherAdmin.getUsername(),
+            otherAdmin.getDisplayName(), Set.of("ADMIN"), false
+        ));
+
         mockMvc.perform(put("/api/v1/admin/users/" + otherAdmin.getPublicId())
                 .with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
@@ -186,6 +199,12 @@ class UserAdminControllerIT {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.roles", hasItem("CREATOR")))
             .andExpect(jsonPath("$.data.roles", not(hasItem("ADMIN"))));
+
+        try {
+            assertThat(sessionRegistry.getSessionInformation(sessionId).isExpired()).isTrue();
+        } finally {
+            sessionRegistry.removeSessionInformation(sessionId);
+        }
     }
 
     @Test

@@ -89,7 +89,11 @@ export function canDownloadPrototype(
   if (!user?.publicId) return false;
   const roles = user.roles ?? [];
   const isAdmin = roles.some((role) => role === 'ADMIN' || role === 'ROLE_ADMIN');
-  if (isAdmin || item.createdBy?.publicId === user.publicId || isPrototypeOwner(item, user.publicId)) {
+  const isCreator = roles.some((role) => role === 'CREATOR' || role === 'ROLE_CREATOR');
+  const isManager = isAdmin || (isCreator && (
+    item.createdBy?.publicId === user.publicId || isPrototypeOwner(item, user.publicId)
+  ));
+  if (isManager) {
     return true;
   }
   if (item.downloadAccess === 'ALL_VIEWERS') {

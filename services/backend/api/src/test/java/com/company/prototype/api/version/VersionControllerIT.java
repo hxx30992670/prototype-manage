@@ -23,6 +23,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
@@ -38,17 +39,20 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.Set;
 
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringBootTest(classes = PrototypeApiApplication.class)
@@ -90,6 +94,9 @@ class VersionControllerIT {
 
     @Autowired
     private PrototypeVersionRepository versionRepository;
+
+    @Autowired
+    private StringRedisTemplate redisTemplate;
 
     @Autowired
     private PublishJobRepository publishJobRepository;
@@ -222,11 +229,24 @@ class VersionControllerIT {
 
         String downloadUrl = objectMapper.readTree(ticketResStr).path("data").path("url").asText();
 
-        // Download file via download ticket (anonymous permitAll)
-        mockMvc.perform(get(downloadUrl))
+        // Internal download tickets require the current authorized account.
+        mockMvc.perform(get(downloadUrl).with(user("creator_user").roles("CREATOR")))
             .andExpect(status().isOk())
             .andExpect(header().string("Content-Type", "application/octet-stream"))
             .andExpect(header().exists("Content-Disposition"));
+    }
+
+    @Test
+    void publicShareDownloadTicketsRemainUsable() throws Exception {
+        redisTemplate.opsForValue().set(
+            "download:ticket:share-regression",
+            "source/share-attachment.pdf|share-attachment.pdf",
+            Duration.ofMinutes(5)
+        );
+
+        mockMvc.perform(get("/share-api/v1/downloads/share-regression"))
+            .andExpect(status().isOk())
+            .andExpect(header().string("Content-Type", "application/octet-stream"));
     }
 
     @Test
@@ -269,14 +289,49 @@ class VersionControllerIT {
         version.setCreatedBy(creatorUser);
         version = versionRepository.save(version);
 
+        String previewResponse = mockMvc.perform(post("/api/v1/prototypes/" + prototype.getPublicId()
+                + "/versions/" + version.getPublicId() + "/preview-ticket")
+                .with(csrf()).with(user("viewer_user").roles("VIEWER")))
+            .andExpect(status().isOk())
+            .andReturn().getResponse().getContentAsString();
+        String previewTicket = objectMapper.readTree(previewResponse).path("data").path("ticket").asText();
+        String contentTicketKey = "ticket:content:" + com.company.prototype.api.preview.PreviewTicketService.hashTicket(previewTicket);
+        assertThat(Boolean.TRUE.equals(redisTemplate.hasKey(contentTicketKey))).isTrue();
+
         String ticketUrl = "/api/v1/prototypes/" + prototype.getPublicId() + "/versions/" + version.getPublicId() + "/download-ticket";
 
-        mockMvc.perform(post(ticketUrl).with(csrf()).with(user("viewer_user").roles("VIEWER")))
+        String ticketResponse = mockMvc.perform(post(ticketUrl).with(csrf()).with(user("viewer_user").roles("VIEWER")))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.url").isNotEmpty());
+            .andExpect(jsonPath("$.data.url").isNotEmpty())
+            .andReturn().getResponse().getContentAsString();
+
+        String downloadUrl = objectMapper.readTree(ticketResponse).path("data").path("url").asText();
+        String updateBody = """
+            {
+              "name": "CRM系统原型",
+              "categoryId": "%s",
+              "ownerId": "%s",
+              "visibility": "RESTRICTED",
+              "viewerIds": ["%s"],
+              "downloadAccess": "SELECTED",
+              "downloaderIds": ["%s"],
+              "tagIds": []
+            }
+            """.formatted(category.getCode(), creatorUser.getPublicId(), stranger.getPublicId(), stranger.getPublicId());
+        mockMvc.perform(put("/api/v1/prototypes/" + prototype.getPublicId())
+                .with(csrf())
+                .with(user("creator_user").roles("CREATOR"))
+                .header("If-Match", "\"" + prototype.getRowVersion() + "\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(updateBody))
+            .andExpect(status().isOk());
+
+        assertThat(Boolean.TRUE.equals(redisTemplate.hasKey(contentTicketKey))).isFalse();
+        mockMvc.perform(get(downloadUrl).with(user("viewer_user").roles("VIEWER")))
+            .andExpect(status().isForbidden());
 
         mockMvc.perform(post(ticketUrl).with(csrf()).with(user("stranger_user").roles("VIEWER")))
-            .andExpect(status().isForbidden());
+            .andExpect(status().isOk());
 
         prototype = prototypeRepository.findById(prototype.getId()).orElseThrow();
         prototype.setDownloadAccess("MANAGERS_ONLY");

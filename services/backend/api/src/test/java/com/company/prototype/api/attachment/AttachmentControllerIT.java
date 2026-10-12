@@ -211,6 +211,10 @@ class AttachmentControllerIT {
     @Test
     @WithMockUser(username = "attach_viewer", roles = {"VIEWER"})
     void viewerCanCreateDownloadTicketWithoutAmzSignature() throws Exception {
+        prototype.setVisibility("RESTRICTED");
+        prototype.setViewers(Set.of(viewerUser));
+        prototype = prototypeRepository.saveAndFlush(prototype);
+
         PrototypeAttachmentEntity attach = new PrototypeAttachmentEntity();
         attach.setPublicId(idGenerator.nextId());
         attach.setPrototype(prototype);
@@ -225,11 +229,20 @@ class AttachmentControllerIT {
         attach.setCreatedAt(Instant.now());
         attach = attachmentRepository.save(attach);
 
-        mockMvc.perform(get("/api/v1/attachments/" + attach.getPublicId() + "/download"))
+        String ticketResponse = mockMvc.perform(get("/api/v1/attachments/" + attach.getPublicId() + "/download"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.url").exists())
             .andExpect(jsonPath("$.data.url").value(not(containsString("X-Amz-Signature"))))
-            .andExpect(jsonPath("$.data.url").value(containsString("/api/v1/downloads/")));
+            .andExpect(jsonPath("$.data.url").value(containsString("/api/v1/downloads/")))
+            .andReturn().getResponse().getContentAsString();
+
+        String downloadUrl = objectMapper.readTree(ticketResponse).path("data").path("url").asText();
+        prototype = prototypeRepository.findById(prototype.getId()).orElseThrow();
+        prototype.setViewers(Set.of());
+        prototypeRepository.saveAndFlush(prototype);
+
+        mockMvc.perform(get(downloadUrl))
+            .andExpect(status().isForbidden());
     }
 
     @Test

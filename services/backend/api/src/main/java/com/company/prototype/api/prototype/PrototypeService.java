@@ -2,6 +2,7 @@ package com.company.prototype.api.prototype;
 
 import com.company.prototype.api.security.CurrentUser;
 import com.company.prototype.api.security.PrototypeAuthorizationService;
+import com.company.prototype.api.preview.PreviewTicketService;
 import com.company.prototype.common.error.ApiErrorCode;
 import com.company.prototype.common.error.ApiException;
 import com.company.prototype.common.id.PublicIdGenerator;
@@ -29,6 +30,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
 import java.util.*;
@@ -51,6 +54,7 @@ public class PrototypeService {
     private final PublicIdGenerator publicIdGenerator;
     private final com.company.prototype.api.share.PrototypeShareService shareService;
     private final PrototypeVersionRepository versionRepository;
+    private final PreviewTicketService previewTicketService;
 
     public PrototypeService(
         PrototypeRepository prototypeRepository,
@@ -61,7 +65,8 @@ public class PrototypeService {
         PrototypeAuthorizationService authorizationService,
         PublicIdGenerator publicIdGenerator,
         com.company.prototype.api.share.PrototypeShareService shareService,
-        PrototypeVersionRepository versionRepository
+        PrototypeVersionRepository versionRepository,
+        PreviewTicketService previewTicketService
     ) {
         this.prototypeRepository = prototypeRepository;
         this.categoryRepository = categoryRepository;
@@ -72,6 +77,7 @@ public class PrototypeService {
         this.publicIdGenerator = publicIdGenerator;
         this.shareService = shareService;
         this.versionRepository = versionRepository;
+        this.previewTicketService = previewTicketService;
     }
 
     @Transactional
@@ -139,6 +145,8 @@ public class PrototypeService {
             throw new ApiException(ApiErrorCode.RESOURCE_VERSION_CONFLICT, "原型已被他人修改，请刷新后重试");
         }
 
+        AccessConfiguration previousAccess = accessConfiguration(entity);
+
         CategoryEntity category = findCategory(req.categoryId());
         Set<UserEntity> owners = resolveOwners(req.ownerIds(), req.ownerId(), entity.getCreatedBy(), false);
         if (owners == null) {
@@ -165,9 +173,65 @@ public class PrototypeService {
 
         entity = prototypeRepository.save(entity);
 
+        if (!previousAccess.equals(accessConfiguration(entity))) {
+            revokePreviewTicketsAfterCommit(entity.getId());
+        }
+
         logAudit("PROTOTYPE_UPDATE", entity.getPublicId(), "SUCCESS", currentUser.id(), "更新原型基本资料: " + entity.getName());
         return mapToDto(entity);
     }
+
+    private void revokePreviewTicketsAfterCommit(Long prototypeId) {
+        List<Long> versionIds = versionRepository.findAllByPrototypeIdOrderByVersionNoDesc(prototypeId)
+            .stream()
+            .map(PrototypeVersionEntity::getId)
+            .toList();
+        if (versionIds.isEmpty()) {
+            return;
+        }
+
+        Runnable revoke = () -> versionIds.forEach(previewTicketService::revokeVersionTickets);
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    revoke.run();
+                }
+            });
+        } else {
+            revoke.run();
+        }
+    }
+
+    private AccessConfiguration accessConfiguration(PrototypeEntity entity) {
+        return new AccessConfiguration(
+            entity.getVisibility(),
+            entity.getDownloadAccess(),
+            entity.getOwner() != null ? entity.getOwner().getId() : null,
+            userIds(entity.getOwners()),
+            userIds(entity.getViewers()),
+            userIds(entity.getDownloaders())
+        );
+    }
+
+    private Set<Long> userIds(Set<UserEntity> users) {
+        if (users == null || users.isEmpty()) {
+            return Set.of();
+        }
+        return users.stream()
+            .map(UserEntity::getId)
+            .filter(Objects::nonNull)
+            .collect(Collectors.toSet());
+    }
+
+    private record AccessConfiguration(
+        String visibility,
+        String downloadAccess,
+        Long ownerId,
+        Set<Long> ownerIds,
+        Set<Long> viewerIds,
+        Set<Long> downloaderIds
+    ) {}
 
     @Transactional
     public PrototypeDtos.PrototypeResponse updateReviewStatus(
